@@ -71,16 +71,26 @@ class Repo(Protocol):
 class DefaultRepo:
     """Repository implementation resolving helper functions dynamically."""
 
+    _resolve = staticmethod(_resolve)
+
     def select_due_jobs(self, now: datetime) -> Iterable[DueJob]:
         """Return jobs scheduled to run by ``now``."""
         logger.debug("select_due_jobs now=%s", now)
-        try:
-            func = _resolve("accscore.db.jobs.select_due_jobs")
-        except RuntimeError:
-            return []
-        try:
-            rows = func(now)
-        except TypeError:
+        rows: Iterable[Any] | None = None
+        for path in (
+            "accscore.db.jobs.select_due_jobs",
+            "accscore.db.select_due_jobs",
+        ):
+            try:
+                func = self._resolve(path)
+            except RuntimeError:
+                continue
+            try:
+                rows = func(now)
+            except TypeError:
+                return []
+            break
+        else:
             return []
         # Be robust to row shape: dict with id / job_id, or raw id
         due: list[DueJob] = []
@@ -95,15 +105,18 @@ class DefaultRepo:
     def instantiate_job_tasks(self, job_id: str) -> int:
         """Instantiate tasks for ``job_id`` and return count of created tasks."""
         logger.debug("instantiate_job_tasks job_id=%s", job_id)
-        try:
-            func = _resolve("accscore.db.jobs.instantiate_job_tasks")
-        except RuntimeError:
-            return 0
-        try:
-            created = func(job_id)
-        except TypeError:
-            return 0
-        return int(created or 0)
+        for path in (
+            "accscore.db.jobs.instantiate_job_tasks",
+            "accscore.db.instantiate_tasks",
+        ):
+            try:
+                func = self._resolve(path)
+                return int(func(job_id) or 0)
+            except RuntimeError:
+                continue
+            except TypeError:
+                return 0
+        return 0
 
     def set_job_running_if_new_tasks(self, job_id: str, created: int) -> None:
         """Mark job running when ``created`` > 0."""
@@ -118,7 +131,7 @@ class DefaultRepo:
             "accscore.db.jobs.set_job_running_if_new_tasks",
         ):
             try:
-                func = _resolve(path)
+                func = self._resolve(path)
                 func(job_id)
                 return None
             except RuntimeError:
@@ -135,25 +148,33 @@ class DefaultRepo:
             "accscore.db.jobs.apply_retry_backoff",
         ):
             try:
-                func = _resolve(path)
-                return int(func(now) or 0)
-            except RuntimeError:
+                func = self._resolve(path)
+            except Exception:
+                logger.info("apply_retry_backoff.missing path=%s", path)
                 continue
+            try:
+                return int(func(now) or 0)
             except TypeError:
+                return 0
+            except Exception:
                 return 0
         return 0
 
     def maybe_finish_job(self, job_id: str) -> bool:
         """Attempt to finish job ``job_id`` and return completion state."""
         logger.debug("maybe_finish_job job_id=%s", job_id)
-        try:
-            func = _resolve("accscore.db.jobs.maybe_finish_job")
-        except RuntimeError:
-            return False
-        try:
-            return bool(func(job_id))
-        except TypeError:
-            return False
+        for path in (
+            "accscore.db.jobs.maybe_finish_job",
+            "accscore.db.maybe_finish_job",
+        ):
+            try:
+                func = self._resolve(path)
+                return bool(func(job_id))
+            except RuntimeError:
+                continue
+            except TypeError:
+                return False
+        return False
 
 
 def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
@@ -209,8 +230,12 @@ def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
 def main() -> None:
     """Command line interface for the builder daemon."""
     parser = argparse.ArgumentParser("accs-builder")
-    parser.add_argument("--every", type=float, default=2.0, help="Seconds between ticks")
-    parser.add_argument("--once", action="store_true", help="Run a single tick and exit")
+    parser.add_argument(
+        "--every", type=float, default=2.0, help="Seconds between ticks"
+    )
+    parser.add_argument(
+        "--once", action="store_true", help="Run a single tick and exit"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
