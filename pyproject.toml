@@ -1,0 +1,65 @@
+### `pyproject.toml`
+
+```toml
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "accs-app"
+version = "0.1.0"
+description = "ACCScore-alapú alkalmazás (builder/agent/scheduler komponensekhez)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Your Team", email = "dev@example.com" }]
+
+# Alap függőségek (a saját apphoz). Az ACCScore külön kerül telepítésre submodule-ból (editable).
+dependencies = [
+    "typer>=0.12",           # kényelmi CLI (builder/agent indítókhoz)
+    "structlog>=24.1.0",     # strukturált log (opcionális, használhatod a std loggingot is)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+pythonpath = ["src"]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "UP", "I", "N", "PTH", "D", "C90"]
+ignore = [
+  "D105",  # Missing docstring in magic method
+  "D107",  # Missing docstring in __init__
+]
+mccabe.max-complexity = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+strict_equality = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/accs_app"]
