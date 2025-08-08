@@ -8,9 +8,38 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from importlib import import_module
+from typing import Any, Callable, Protocol
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve(path: str) -> Callable[..., Any]:
+    """Resolve dotted ``path`` to a callable.
+
+    The referenced object is imported lazily and returned. A ``RuntimeError`` is
+    raised when the module or attribute cannot be resolved.
+
+    Args:
+        path: Dotted import path to resolve.
+
+    Returns:
+        The resolved callable.
+
+    Raises:
+        RuntimeError: If the target cannot be imported or is missing.
+    """
+    module_path, _, attr = path.rpartition(".")
+    if not module_path or not attr:
+        raise RuntimeError(f"invalid import path: {path}")
+    try:
+        module = import_module(module_path)
+    except ModuleNotFoundError as exc:  # pragma: no cover - importlib error
+        raise RuntimeError(f"module not found: {module_path}") from exc
+    try:
+        return getattr(module, attr)
+    except AttributeError as exc:  # pragma: no cover - attribute error
+        raise RuntimeError(f"attribute not found: {path}") from exc
 
 
 @dataclass(frozen=True)
@@ -40,27 +69,74 @@ class Repo(Protocol):
 
 
 class DefaultRepo:
-    """Placeholder repository implementation to be wired to real storage."""
+    """Repository implementation resolving helper functions dynamically."""
 
     def select_due_jobs(self, now: datetime) -> Iterable[DueJob]:
-        """Return no jobs in the stub implementation."""
-        return ()
+        """Return jobs scheduled to run by ``now``."""
+        logger.debug("select_due_jobs now=%s", now)
+        try:
+            func = _resolve("accscore.db.jobs.select_due_jobs")
+        except RuntimeError:
+            return []
+        try:
+            rows = func(now)
+        except TypeError:
+            return []
+        return [DueJob(job_id=str(row)) for row in rows]
 
     def instantiate_job_tasks(self, job_id: str) -> int:
-        """Return zero as no tasks are created."""
-        return 0
+        """Instantiate tasks for ``job_id`` and return count of created tasks."""
+        logger.debug("instantiate_job_tasks job_id=%s", job_id)
+        try:
+            func = _resolve("accscore.db.jobs.instantiate_job_tasks")
+        except RuntimeError:
+            return 0
+        try:
+            created = func(job_id)
+        except TypeError:
+            return 0
+        return int(created)
 
     def set_job_running_if_new_tasks(self, job_id: str, created: int) -> None:
-        """No-op for stub implementation."""
+        """Mark job running when ``created`` > 0."""
+        logger.debug(
+            "set_job_running_if_new_tasks job_id=%s created=%s", job_id, created
+        )
+        if created <= 0:
+            return None
+        try:
+            func = _resolve("accscore.db.jobs.set_job_running_if_queued")
+        except RuntimeError:
+            return None
+        try:
+            func(job_id)
+        except TypeError:
+            return None
         return None
 
     def apply_retry_backoff(self, now: datetime) -> int:
-        """Return zero as no retries are scheduled."""
-        return 0
+        """Apply retry/backoff housekeeping."""
+        logger.debug("apply_retry_backoff now=%s", now)
+        try:
+            func = _resolve("accscore.db.tasks.apply_retry_backoff")
+        except RuntimeError:
+            return 0
+        try:
+            return int(func(now))
+        except TypeError:
+            return 0
 
     def maybe_finish_job(self, job_id: str) -> bool:
-        """Return ``False`` to indicate unfinished job."""
-        return False
+        """Attempt to finish job ``job_id`` and return completion state."""
+        logger.debug("maybe_finish_job job_id=%s", job_id)
+        try:
+            func = _resolve("accscore.db.jobs.maybe_finish_job")
+        except RuntimeError:
+            return False
+        try:
+            return bool(func(job_id))
+        except TypeError:
+            return False
 
 
 def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
