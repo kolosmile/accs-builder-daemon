@@ -59,7 +59,17 @@ def test_instantiate_path() -> None:
     assert repo.set_running_calls == [("job-1", 2)]
     assert repo.maybe_finish_calls == ["job-1"]
     assert repo.retry_calls == 1
-    assert actions >= 1
+    assert actions == 1
+
+
+def test_finish_counts_as_action() -> None:
+    """Finishing a job increments the action count."""
+    repo = FakeRepo(due_jobs=["job-1"], finish=True)
+    actions = tick(repo=repo, now=datetime(2024, 1, 1, tzinfo=UTC))
+    assert repo.set_running_calls == []
+    assert repo.maybe_finish_calls == ["job-1"]
+    assert repo.retry_calls == 1
+    assert actions == 1
 
 
 def test_no_due_jobs_only_retry() -> None:
@@ -71,8 +81,8 @@ def test_no_due_jobs_only_retry() -> None:
     assert actions == 3
 
 
-def test_main_once_runs_single_tick(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CLI `--once` triggers a single tick."""
+def test_cli_once_calls_tick_and_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--once`` runs exactly one tick."""
     ran = {"count": 0}
 
     def fake_tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:  # noqa: ARG001
@@ -83,3 +93,36 @@ def test_main_once_runs_single_tick(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sys.argv", ["accs-builder", "--once"])
     main()
     assert ran["count"] == 1
+
+
+def test_cli_loop_catches_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Loop retries after exceptions and logs them."""
+    from accs_app.agents import builder
+
+    calls = {"tick": 0, "logged": 0}
+
+    def fake_tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:  # noqa: ARG001
+        calls["tick"] += 1
+        if calls["tick"] == 1:
+            raise RuntimeError("boom")
+        builder._stop = True  # type: ignore[attr-defined]
+        return 0
+
+    def fake_sleep(_seconds: float) -> None:  # noqa: ARG001
+        if getattr(builder, "_stop", False):
+            raise SystemExit
+
+    def fake_exception(*_args: object, **_kwargs: object) -> None:
+        calls["logged"] += 1
+
+    monkeypatch.setattr(builder, "tick", fake_tick)
+    monkeypatch.setattr(builder.time, "sleep", fake_sleep)
+    monkeypatch.setattr(builder.logger, "exception", fake_exception)
+    monkeypatch.setattr(builder, "_stop", False, raising=False)
+    monkeypatch.setattr("sys.argv", ["accs-builder", "--every", "0"])
+
+    with pytest.raises(SystemExit):
+        main()
+
+    assert calls["tick"] == 2
+    assert calls["logged"] == 1

@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import import_module
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ def _resolve(path: str) -> Callable[..., Any]:
         raise RuntimeError(f"invalid import path: {path}")
     try:
         module = import_module(module_path)
-    except ModuleNotFoundError as exc:  # pragma: no cover - importlib error
+    except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(f"module not found: {module_path}") from exc
     try:
         return getattr(module, attr)
-    except AttributeError as exc:  # pragma: no cover - attribute error
+    except AttributeError as exc:  # pragma: no cover
         raise RuntimeError(f"attribute not found: {path}") from exc
 
 
@@ -82,7 +82,15 @@ class DefaultRepo:
             rows = func(now)
         except TypeError:
             return []
-        return [DueJob(job_id=str(row)) for row in rows]
+        # Be robust to row shape: dict with id / job_id, or raw id
+        due: list[DueJob] = []
+        for row in rows or []:
+            if isinstance(row, dict):
+                job_id = row.get("id") or row.get("job_id") or str(row)
+            else:
+                job_id = str(row)
+            due.append(DueJob(job_id=job_id))
+        return due
 
     def instantiate_job_tasks(self, job_id: str) -> int:
         """Instantiate tasks for ``job_id`` and return count of created tasks."""
@@ -95,7 +103,7 @@ class DefaultRepo:
             created = func(job_id)
         except TypeError:
             return 0
-        return int(created)
+        return int(created or 0)
 
     def set_job_running_if_new_tasks(self, job_id: str, created: int) -> None:
         """Mark job running when ``created`` > 0."""
@@ -104,27 +112,36 @@ class DefaultRepo:
         )
         if created <= 0:
             return None
-        try:
-            func = _resolve("accscore.db.jobs.set_job_running_if_queued")
-        except RuntimeError:
-            return None
-        try:
-            func(job_id)
-        except TypeError:
-            return None
+        # Prefer a targeted helper if available; otherwise no-op in MVP.
+        for path in (
+            "accscore.db.jobs.set_job_running_if_queued",
+            "accscore.db.jobs.set_job_running_if_new_tasks",
+        ):
+            try:
+                func = _resolve(path)
+                func(job_id)
+                return None
+            except RuntimeError:
+                continue
+            except TypeError:
+                return None
         return None
 
     def apply_retry_backoff(self, now: datetime) -> int:
         """Apply retry/backoff housekeeping."""
         logger.debug("apply_retry_backoff now=%s", now)
-        try:
-            func = _resolve("accscore.db.tasks.apply_retry_backoff")
-        except RuntimeError:
-            return 0
-        try:
-            return int(func(now))
-        except TypeError:
-            return 0
+        for path in (
+            "accscore.db.tasks.apply_retry_backoff",
+            "accscore.db.jobs.apply_retry_backoff",
+        ):
+            try:
+                func = _resolve(path)
+                return int(func(now) or 0)
+            except RuntimeError:
+                continue
+            except TypeError:
+                return 0
+        return 0
 
     def maybe_finish_job(self, job_id: str) -> bool:
         """Attempt to finish job ``job_id`` and return completion state."""
@@ -154,40 +171,60 @@ def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
         now: Current time. Defaults to ``datetime.now(UTC)``.
 
     Returns:
-        Number of actions performed (jobs with created tasks + retries + finishes).
+        Total number of actions performed (creates + retries + finishes).
+
+    Side Effects:
+        Emits a single ``logger.info("builder.tick", extra={...})`` summary.
     """
     repo = repo or DefaultRepo()
     now = now or datetime.now(UTC)
 
-    actions = 0
-    for due in repo.select_due_jobs(now):
+    due_jobs = list(repo.select_due_jobs(now))
+    jobs_with_creates = 0
+    finished_count = 0
+
+    for due in due_jobs:
         created = repo.instantiate_job_tasks(due.job_id)
         if created > 0:
             repo.set_job_running_if_new_tasks(due.job_id, created)
-            actions += 1
+            jobs_with_creates += 1
         if repo.maybe_finish_job(due.job_id):
-            actions += 1
-    actions += repo.apply_retry_backoff(now)
-    logger.info("tick actions=%s", actions)
+            finished_count += 1
+
+    retries = repo.apply_retry_backoff(now)
+    actions = jobs_with_creates + retries + finished_count
+    logger.info(
+        "builder.tick",
+        extra={
+            "due_jobs": len(due_jobs),
+            "jobs_with_creates": jobs_with_creates,
+            "retries": retries,
+            "finishes": finished_count,
+            "actions": actions,
+        },
+    )
     return actions
 
 
 def main() -> None:
     """Command line interface for the builder daemon."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--every", type=float, default=2.0, help="Seconds between ticks"
-    )
-    parser.add_argument(
-        "--once", action="store_true", help="Run a single tick and exit"
-    )
+    parser = argparse.ArgumentParser("accs-builder")
+    parser.add_argument("--every", type=float, default=2.0, help="Seconds between ticks")
+    parser.add_argument("--once", action="store_true", help="Run a single tick and exit")
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+
     repo: Repo = DefaultRepo()
+
     if args.once:
         tick(repo=repo)
         return
 
+    interval = max(0.05, float(args.every))
     while True:
-        tick(repo=repo)
-        time.sleep(args.every)
+        try:
+            tick(repo=repo)
+        except Exception as exc:  # pragma: no cover
+            logger.exception("builder.tick.failed: %s", exc)
+        time.sleep(interval)
