@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +41,58 @@ class Repo(Protocol):
 
 
 class DefaultRepo:
-    """Placeholder repository implementation to be wired to real storage."""
+    """Repository implementation delegating to the ACCScore package."""
+
+    def _resolve(self, path: str) -> Callable[..., Any]:
+        """Resolve a dotted path to a callable.
+
+        Args:
+            path: Dotted import path (e.g. ``"pkg.mod.func"``).
+
+        Returns:
+            Imported attribute referenced by ``path``.
+
+        Raises:
+            KeyError: If the module or attribute cannot be imported.
+        """
+        module_name, attr = path.rsplit(".", 1)
+        try:
+            module = importlib.import_module(module_name)
+            return getattr(module, attr)
+        except (ModuleNotFoundError, AttributeError) as exc:  # pragma: no cover
+            raise KeyError(path) from exc
 
     def select_due_jobs(self, now: datetime) -> Iterable[DueJob]:
-        """Return no jobs in the stub implementation."""
-        return ()
+        """Fetch due jobs from ACCScore and adapt rows to :class:`DueJob`."""
+        rows = self._resolve("accscore.db.jobs.select_due_jobs")(now)
+        return [DueJob(job_id=row["id"]) for row in rows]
 
     def instantiate_job_tasks(self, job_id: str) -> int:
-        """Return zero as no tasks are created."""
-        return 0
+        """Instantiate tasks for ``job_id`` via ACCScore."""
+        func = self._resolve("accscore.db.jobs.instantiate_job_tasks")
+        return int(func(job_id))
 
     def set_job_running_if_new_tasks(self, job_id: str, created: int) -> None:
-        """No-op for stub implementation."""
+        """Delegate to ACCScore when ``created`` is positive."""
+        if created <= 0:
+            return None
+        func = self._resolve("accscore.db.jobs.set_job_running_if_new_tasks")
+        func(job_id, created)
         return None
 
     def apply_retry_backoff(self, now: datetime) -> int:
-        """Return zero as no retries are scheduled."""
-        return 0
+        """Invoke ACCScore backoff housekeeping if available."""
+        try:
+            func = self._resolve("accscore.db.jobs.apply_retry_backoff")
+        except KeyError:
+            logger.info("apply_retry_backoff not available")
+            return 0
+        return int(func(now))
 
     def maybe_finish_job(self, job_id: str) -> bool:
-        """Return ``False`` to indicate unfinished job."""
-        return False
+        """Attempt job completion via ACCScore."""
+        func = self._resolve("accscore.db.jobs.maybe_finish_job")
+        return bool(func(job_id))
 
 
 def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
