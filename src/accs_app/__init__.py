@@ -1,0 +1,1 @@
+"""ACCScore application package."""

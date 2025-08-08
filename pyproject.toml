@@ -60,3 +60,6 @@ strict_equality = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/accs_app"]
+
+[project.scripts]
+accs-builder = "accs_app.agents.builder:main"
