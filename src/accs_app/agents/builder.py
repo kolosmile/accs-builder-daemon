@@ -113,5 +113,8 @@ def main() -> None:
         return
 
     while True:
-        tick(repo=repo)
+        try:
+            tick(repo=repo)
+        except Exception:  # noqa: BLE001
+            logger.exception("tick failed")
         time.sleep(args.every)
