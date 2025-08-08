@@ -1,0 +1,6 @@
+[submodule "libs/accscore"]
+	path = libs/accscore
+	url = https://github.com/kolosmile/accs-core
+	branch = main
+	update = merge
+	shallow = true
