@@ -59,7 +59,17 @@ def test_instantiate_path() -> None:
     assert repo.set_running_calls == [("job-1", 2)]
     assert repo.maybe_finish_calls == ["job-1"]
     assert repo.retry_calls == 1
-    assert actions >= 1
+    assert actions == 1
+
+
+def test_finish_counts_as_action() -> None:
+    """Finishing a job increments the action count."""
+    repo = FakeRepo(due_jobs=["job-1"], finish=True)
+    actions = tick(repo=repo, now=datetime(2024, 1, 1, tzinfo=UTC))
+    assert repo.set_running_calls == []
+    assert repo.maybe_finish_calls == ["job-1"]
+    assert repo.retry_calls == 1
+    assert actions == 1
 
 
 def test_no_due_jobs_only_retry() -> None:

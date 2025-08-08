@@ -78,21 +78,44 @@ def tick(repo: Repo | None = None, *, now: datetime | None = None) -> int:
         now: Current time. Defaults to ``datetime.now(UTC)``.
 
     Returns:
-        Number of actions performed (jobs with created tasks + retries + finishes).
+        Total number of actions performed.
+
+        An action is one of:
+            * a job had tasks created for it,
+            * a job finished, or
+            * a job retried via backoff.
+
+    Side Effects:
+        Emits a single ``logger.info("builder.tick", extra={...})`` entry summarizing
+        the cycle.
     """
     repo = repo or DefaultRepo()
     now = now or datetime.now(UTC)
 
-    actions = 0
-    for due in repo.select_due_jobs(now):
+    due_jobs = list(repo.select_due_jobs(now))
+    jobs_with_creates = 0
+    finished_count = 0
+
+    for due in due_jobs:
         created = repo.instantiate_job_tasks(due.job_id)
         if created > 0:
             repo.set_job_running_if_new_tasks(due.job_id, created)
-            actions += 1
+            jobs_with_creates += 1
         if repo.maybe_finish_job(due.job_id):
-            actions += 1
-    actions += repo.apply_retry_backoff(now)
-    logger.info("tick actions=%s", actions)
+            finished_count += 1
+
+    retries = repo.apply_retry_backoff(now)
+    actions = jobs_with_creates + retries + finished_count
+    logger.info(
+        "builder.tick",
+        extra={
+            "due_jobs": len(due_jobs),
+            "jobs_with_creates": jobs_with_creates,
+            "retries": retries,
+            "finishes": finished_count,
+            "actions": actions,
+        },
+    )
     return actions
 
 
