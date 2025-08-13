@@ -1,0 +1,15 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: forbid-submodule-changes
+        name: Forbid changes under libs/accscore (read-only submodule)
+        entry: >
+          bash -c 'if git diff --cached --name-only | grep -q "^libs/accscore/"; then echo "ERROR: Do not modify the accscore submodule (libs/accscore) — it is read-only."; exit 1; fi'
+        language: system
+        pass_filenames: false
