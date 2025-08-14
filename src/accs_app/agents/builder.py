@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def _resolve(path: str) -> Callable[..., Any]:
     if not module_path or not attr:
         raise RuntimeError(f"invalid import path: {path}")
     try:
-        module = __import__(module_path, fromlist=[attr])
+        module = import_module(module_path)
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(f"module not found: {module_path}") from exc
     try:
