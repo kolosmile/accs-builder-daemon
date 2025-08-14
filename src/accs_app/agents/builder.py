@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import logging
 import time
 from collections.abc import Callable, Iterable
@@ -72,6 +73,33 @@ class DefaultRepo:
 
     _resolve = staticmethod(_resolve)
 
+    def __init__(self, dsn: str | None = None) -> None:
+        """Initialise repository with a database engine.
+
+        Args:
+            dsn: Optional database connection string. When ``None`` the
+                configuration is loaded from :class:`accscore.settings.Settings`.
+        """
+        if dsn is None:
+            from accscore.settings import Settings  # type: ignore[import-not-found]
+
+            dsn = Settings().postgres_dsn
+        from accs_app.db.session import get_engine
+
+        self._engine = get_engine(dsn)
+
+    def _call_with_optional_conn(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        conn: Any | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        sig = inspect.signature(func)
+        if "conn" in sig.parameters and conn is not None and "conn" not in kwargs:
+            kwargs["conn"] = conn
+        return func(*args, **kwargs)
+
     def select_due_jobs(self, now: datetime) -> Iterable[DueJob]:
         """Return jobs scheduled to run by ``now``."""
         logger.debug("select_due_jobs now=%s", now)
@@ -85,7 +113,10 @@ class DefaultRepo:
             except RuntimeError:
                 continue
             try:
-                rows = func(now)
+                from accs_app.db.session import session_scope
+
+                with session_scope(self._engine) as conn:
+                    rows = self._call_with_optional_conn(func, now, conn=conn)
             except TypeError:
                 return []
             break
@@ -110,9 +141,15 @@ class DefaultRepo:
         ):
             try:
                 func = self._resolve(path)
-                return int(func(job_id) or 0)
             except RuntimeError:
                 continue
+            try:
+                from accs_app.db.session import session_scope
+
+                with session_scope(self._engine) as conn:
+                    return int(
+                        self._call_with_optional_conn(func, job_id, conn=conn) or 0
+                    )
             except TypeError:
                 return 0
         return 0
@@ -131,10 +168,14 @@ class DefaultRepo:
         ):
             try:
                 func = self._resolve(path)
-                func(job_id)
-                return None
             except RuntimeError:
                 continue
+            try:
+                from accs_app.db.session import session_scope
+
+                with session_scope(self._engine) as conn:
+                    self._call_with_optional_conn(func, job_id, conn=conn)
+                return None
             except TypeError:
                 return None
         return None
@@ -152,7 +193,12 @@ class DefaultRepo:
                 logger.info("apply_retry_backoff.missing path=%s", path)
                 continue
             try:
-                return int(func(now) or 0)
+                from accs_app.db.session import session_scope
+
+                with session_scope(self._engine) as conn:
+                    return int(
+                        self._call_with_optional_conn(func, now, conn=conn) or 0
+                    )
             except TypeError:
                 return 0
             except Exception:
@@ -168,9 +214,15 @@ class DefaultRepo:
         ):
             try:
                 func = self._resolve(path)
-                return bool(func(job_id))
             except RuntimeError:
                 continue
+            try:
+                from accs_app.db.session import session_scope
+
+                with session_scope(self._engine) as conn:
+                    return bool(
+                        self._call_with_optional_conn(func, job_id, conn=conn)
+                    )
             except TypeError:
                 return False
         return False
@@ -235,11 +287,30 @@ def main() -> None:
     parser.add_argument(
         "--once", action="store_true", help="Run a single tick and exit"
     )
+    parser.add_argument("--dsn", default=None, help="Database DSN override")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
 
-    repo: Repo = DefaultRepo()
+    dsn = args.dsn or None
+    if dsn is None:
+        from accscore.settings import Settings
+
+        used_dsn = Settings().postgres_dsn
+    else:
+        used_dsn = dsn
+    repo: Repo = DefaultRepo(dsn=dsn)
+
+    def _mask_dsn(value: str) -> str:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+        if parts.port:
+            host = f"{host}:{parts.port}"
+        return f"{parts.scheme}://***:***@{host}{parts.path}"
+
+    logging.info("builder.start", extra={"dsn": _mask_dsn(used_dsn)})
 
     if args.once:
         tick(repo=repo)

@@ -91,8 +91,15 @@ def test_cli_once_calls_tick_and_exits(monkeypatch: pytest.MonkeyPatch) -> None:
         ran["called"] = True
         return 0
 
+    class DummyRepo:
+        def __init__(self, dsn: str | None = None) -> None:  # noqa: ARG002
+            self.dsn = dsn
+
     monkeypatch.setattr("accs_app.agents.builder.tick", fake_tick)
-    monkeypatch.setattr("sys.argv", ["accs-builder", "--once"])
+    monkeypatch.setattr("accs_app.agents.builder.DefaultRepo", DummyRepo)
+    monkeypatch.setattr(
+        "sys.argv", ["accs-builder", "--once", "--dsn", "sqlite://"]
+    )
     main()
     assert ran["called"] is True
 
@@ -124,7 +131,9 @@ def test_cli_loop_catches_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(builder.time, "sleep", fake_sleep)
     monkeypatch.setattr(builder.logger, "exception", fake_exception)
     monkeypatch.setattr(builder, "_stop", False, raising=False)
-    monkeypatch.setattr("sys.argv", ["accs-builder", "--every", "0"])
+    monkeypatch.setattr(
+        "sys.argv", ["accs-builder", "--every", "0", "--dsn", "sqlite://"]
+    )
 
     with pytest.raises(SystemExit):
         main()
