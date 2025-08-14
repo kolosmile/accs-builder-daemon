@@ -38,7 +38,7 @@ def test_select_due_jobs_primary(monkeypatch: pytest.MonkeyPatch) -> None:
         return [{"id": "j1"}, {"job_id": "j2"}, "j3"]
 
     _patch_resolve(monkeypatch, {"accscore.db.jobs.select_due_jobs": stub})
-    repo = DefaultRepo()
+    repo = DefaultRepo(dsn="sqlite://")
     ids = [d.job_id for d in repo.select_due_jobs(now)]
     assert ids == ["j1", "j2", "j3"]
 
@@ -57,7 +57,7 @@ def test_select_due_jobs_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
             "accscore.db.select_due_jobs": stub,
         },
     )
-    repo = DefaultRepo()
+    repo = DefaultRepo(dsn="sqlite://")
     ids = [d.job_id for d in repo.select_due_jobs(now)]
     assert ids == ["j1", "j2", "j3"]
 
@@ -75,7 +75,7 @@ def test_instantiate_job_tasks_fallback(monkeypatch: pytest.MonkeyPatch) -> None
             "accscore.db.instantiate_tasks": stub,
         },
     )
-    repo = DefaultRepo()
+    repo = DefaultRepo(dsn="sqlite://")
     assert repo.instantiate_job_tasks("job-1") == 2
 
 
@@ -90,7 +90,7 @@ def test_apply_retry_backoff_missing(
             "accscore.db.jobs.apply_retry_backoff": RuntimeError(),
         },
     )
-    repo = DefaultRepo()
+    repo = DefaultRepo(dsn="sqlite://")
     caplog.set_level(logging.INFO)
     now = datetime(2024, 1, 1, tzinfo=UTC)
     assert repo.apply_retry_backoff(now) == 0
@@ -110,5 +110,5 @@ def test_maybe_finish_job_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
             "accscore.db.maybe_finish_job": stub,
         },
     )
-    repo = DefaultRepo()
+    repo = DefaultRepo(dsn="sqlite://")
     assert repo.maybe_finish_job("job-1") is True
