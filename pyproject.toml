@@ -64,3 +64,4 @@ packages = ["src/accs_app"]
 
 [project.scripts]
 accs-builder = "accs_app.agents.builder:main"
+accs-agent = "accs_app.agents.service:main"
