@@ -3,44 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import inspect
 import logging
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from importlib import import_module
 from typing import Any, Protocol
 
+from accs_app.db.repo_base import DBRepoBase, _resolve  # noqa: F401
+
 logger = logging.getLogger(__name__)
-
-
-def _resolve(path: str) -> Callable[..., Any]:
-    """Resolve dotted ``path`` to a callable.
-
-    The referenced object is imported lazily and returned. A ``RuntimeError`` is
-    raised when the module or attribute cannot be resolved.
-
-    Args:
-        path: Dotted import path to resolve.
-
-    Returns:
-        The resolved callable.
-
-    Raises:
-        RuntimeError: If the target cannot be imported or is missing.
-    """
-    module_path, _, attr = path.rpartition(".")
-    if not module_path or not attr:
-        raise RuntimeError(f"invalid import path: {path}")
-    try:
-        module = import_module(module_path)
-    except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError(f"module not found: {module_path}") from exc
-    try:
-        return getattr(module, attr)
-    except AttributeError as exc:  # pragma: no cover
-        raise RuntimeError(f"attribute not found: {path}") from exc
 
 
 @dataclass(frozen=True)
@@ -69,37 +41,8 @@ class Repo(Protocol):
         """Attempt to finish job and return ``True`` if finished."""
 
 
-class DefaultRepo:
+class DefaultRepo(DBRepoBase):
     """Repository implementation resolving helper functions dynamically."""
-
-    _resolve = staticmethod(_resolve)
-
-    def __init__(self, dsn: str | None = None) -> None:
-        """Initialise repository with a database engine.
-
-        Args:
-            dsn: Optional database connection string. When ``None`` the
-                configuration is loaded from :class:`accscore.settings.Settings`.
-        """
-        if dsn is None:
-            from accscore.settings import Settings  # type: ignore[import-not-found]
-
-            dsn = Settings().postgres_dsn
-        from accs_app.db.session import get_engine
-
-        self._engine = get_engine(dsn)
-
-    def _call_with_optional_conn(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        conn: Any | None = None,
-        **kwargs: Any,
-    ) -> Any:
-        sig = inspect.signature(func)
-        if "conn" in sig.parameters and conn is not None and "conn" not in kwargs:
-            kwargs["conn"] = conn
-        return func(*args, **kwargs)
 
     def select_due_jobs(self, now: datetime) -> Iterable[DueJob]:
         """Return jobs scheduled to run by ``now``."""
@@ -114,10 +57,7 @@ class DefaultRepo:
             except RuntimeError:
                 continue
             try:
-                from accs_app.db.session import session_scope
-
-                with session_scope(self._engine) as conn:
-                    rows = self._call_with_optional_conn(func, now, conn=conn)
+                rows = self.with_conn(func, now)
             except TypeError:
                 return []
             break
@@ -145,12 +85,7 @@ class DefaultRepo:
             except RuntimeError:
                 continue
             try:
-                from accs_app.db.session import session_scope
-
-                with session_scope(self._engine) as conn:
-                    return int(
-                        self._call_with_optional_conn(func, job_id, conn=conn) or 0
-                    )
+                return int(self.with_conn(func, job_id) or 0)
             except TypeError:
                 return 0
         return 0
@@ -172,10 +107,7 @@ class DefaultRepo:
             except RuntimeError:
                 continue
             try:
-                from accs_app.db.session import session_scope
-
-                with session_scope(self._engine) as conn:
-                    self._call_with_optional_conn(func, job_id, conn=conn)
+                self.with_conn(func, job_id)
                 return None
             except TypeError:
                 return None
@@ -194,12 +126,7 @@ class DefaultRepo:
                 logger.info("apply_retry_backoff.missing path=%s", path)
                 continue
             try:
-                from accs_app.db.session import session_scope
-
-                with session_scope(self._engine) as conn:
-                    return int(
-                        self._call_with_optional_conn(func, now, conn=conn) or 0
-                    )
+                return int(self.with_conn(func, now) or 0)
             except TypeError:
                 return 0
             except Exception:
@@ -218,12 +145,7 @@ class DefaultRepo:
             except RuntimeError:
                 continue
             try:
-                from accs_app.db.session import session_scope
-
-                with session_scope(self._engine) as conn:
-                    return bool(
-                        self._call_with_optional_conn(func, job_id, conn=conn)
-                    )
+                return bool(self.with_conn(func, job_id))
             except TypeError:
                 return False
         return False
@@ -295,7 +217,7 @@ def main() -> None:
 
     dsn = args.dsn or None
     if dsn is None:
-        from accscore.settings import Settings
+        from accscore.settings import Settings  # type: ignore[import-not-found]
 
         used_dsn = Settings().postgres_dsn
     else:
