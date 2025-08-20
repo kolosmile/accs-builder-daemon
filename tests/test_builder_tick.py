@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from accs_app.agents.builder import DueJob, Repo, main, tick
+from accs_builder_daemon.cli import main
+from accs_builder_daemon.domain.tick import DueJob, Repo, tick
 
 
 class FakeRepo(Repo):
@@ -95,8 +96,10 @@ def test_cli_once_calls_tick_and_exits(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, dsn: str | None = None) -> None:  # noqa: ARG002
             self.dsn = dsn
 
-    monkeypatch.setattr("accs_app.agents.builder.tick", fake_tick)
-    monkeypatch.setattr("accs_app.agents.builder.DefaultRepo", DummyRepo)
+    monkeypatch.setattr("accs_builder_daemon.cli.tick", fake_tick)
+    monkeypatch.setattr(
+        "accs_builder_daemon.repo.builder_repo.DefaultRepo", DummyRepo
+    )
     monkeypatch.setattr(
         "sys.argv", ["accs-builder", "--once", "--dsn", "sqlite://"]
     )
@@ -106,7 +109,7 @@ def test_cli_once_calls_tick_and_exits(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cli_loop_catches_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
     """Loop retries after exceptions and logs them."""
-    from accs_app.agents import builder
+    from accs_builder_daemon import cli as builder
 
     calls = {"tick": 0, "logged": 0}
 

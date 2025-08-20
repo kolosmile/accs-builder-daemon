@@ -7,8 +7,8 @@ from datetime import UTC, datetime  # noqa: F401
 
 import pytest
 
-from accs_app.agents import service
-from accs_app.agents.service import Task, _run_once
+from accs_agent import cli as service
+from accs_agent.cli import Task, _run_once
 
 
 class FakeRepo:

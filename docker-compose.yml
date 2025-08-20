@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.builder
+    environment:
+      ACC_DB_URL: sqlite://
+    command: ["--once", "--dsn", "sqlite://"]
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    environment:
+      ACC_DB_URL: sqlite://
+    command: ["--once", "--service", "echo", "--node", "n1", "--dsn", "sqlite://"]

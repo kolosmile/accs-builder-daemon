@@ -3,15 +3,15 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "accs-app"
+name = "accs-daemon"
 version = "0.1.0"
-description = "ACCScore-alapú alkalmazás (builder/agent/scheduler komponensekhez)."
+description = "Monorepo: ACCS builder daemon és service agent (accs_builder_daemon, accs_agent)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Your Team", email = "dev@example.com" }]
 
-# Alap függőségek (a saját apphoz). Az ACCScore külön kerül telepítésre submodule-ból (editable).
+# Alap függőségek a saját komponensekhez. Az ACCScore külön települ submodule-ból (editable).
 dependencies = [
     "typer>=0.12",           # kényelmi CLI (builder/agent indítókhoz)
     "structlog>=24.1.0",     # strukturált log (opcionális, használhatod a std loggingot is)
@@ -60,8 +60,12 @@ no_implicit_optional = true
 strict_equality = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/accs_app"]
+packages = [
+    "src/accs_builder_daemon",
+    "src/accs_agent",
+    "src/accs_infra",
+]
 
 [project.scripts]
-accs-builder = "accs_app.agents.builder:main"
-accs-agent = "accs_app.agents.service:main"
+accs-builder = "accs_builder_daemon.cli:main"
+accs-agent = "accs_agent.cli:main"

@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from accs_app.agents.builder import DefaultRepo
-from accs_app.db.session import get_engine, session_scope
+from accs_builder_daemon.repo.builder_repo import DefaultRepo
+from accs_infra.db.session import get_engine, session_scope
 
 
 def test_repo_conn_injection(monkeypatch: pytest.MonkeyPatch) -> None:

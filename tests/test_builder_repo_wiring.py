@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from accs_app.agents import builder
-from accs_app.agents.builder import DefaultRepo
+import accs_builder_daemon.repo.builder_repo as builder_repo
+from accs_builder_daemon.repo.builder_repo import DefaultRepo
 
 
 def _patch_resolve(
@@ -26,8 +26,10 @@ def _patch_resolve(
             raise RuntimeError(path)
         return result
 
-    monkeypatch.setattr(builder, "_resolve", fake_resolve)
-    monkeypatch.setattr(builder.DefaultRepo, "_resolve", staticmethod(fake_resolve))
+    monkeypatch.setattr(builder_repo, "_resolve", fake_resolve)
+    monkeypatch.setattr(
+        builder_repo.DefaultRepo, "_resolve", staticmethod(fake_resolve)
+    )
 
 
 def test_select_due_jobs_primary(monkeypatch: pytest.MonkeyPatch) -> None:

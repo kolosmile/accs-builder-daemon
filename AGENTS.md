@@ -1,5 +1,13 @@
 # AGENTS – fejlesztői környezet és kódolási konvenciók (Codex-nek)
 
+Ez a repó (**accs-daemon**) egy monorepo, két külön deployálható komponenssel: builder (`accs_builder_daemon`) és agent (`accs_agent`).
+
+Példák:
+```
+accs-builder --once --dsn sqlite://
+accs-agent --once --service echo --node n1 --dsn sqlite://
+```
+
 > **SUBMODULE POLICY (FONTOS, Codex!)**
 >
 > - A `libs/accscore` **Git submodule**, **CSAK OLVASÁSRA**.
@@ -24,7 +32,9 @@
 ├─ libs/
 │  └─ accscore/           # Git submodule: [https://github.com/kolosmile/accs-core](https://github.com/kolosmile/accs-core)
 ├─ src/
-│  └─ accs\_app/           # Ennek az alkalmazásnak a forrása
+│  ├─ accs\_builder\_daemon/  # Builder komponens
+│  ├─ accs\_agent/            # Service agent komponens
+│  └─ accs\_infra/            # Közös infrastruktúra
 ├─ tests/
 ├─ pyproject.toml
 └─ AGENTS.md

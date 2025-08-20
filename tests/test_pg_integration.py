@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from accs_app.db.session import get_engine, session_scope
+from accs_infra.db.session import get_engine, session_scope
 
 
 def test_pg_connection() -> None:
