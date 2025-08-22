@@ -1,9 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:  # Manual trigger only; automatic CI disabled
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 jobs:
   test:
