@@ -7,7 +7,7 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
-from accs_app.db.session import get_engine, session_scope
+from accs_infra.db.session import get_engine, session_scope
 
 
 def _resolve(path: str) -> Callable[..., Any]:

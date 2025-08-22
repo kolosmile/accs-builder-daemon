@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY libs/accscore ./libs/accscore
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+RUN pip install -e libs/accscore && \
+    pip install -e .
+
+ENTRYPOINT ["accs-builder"]

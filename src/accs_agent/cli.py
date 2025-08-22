@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from accs_app.db.repo_base import DBRepoBase
+from accs_infra.db.repo_base import DBRepoBase
 
 logger = logging.getLogger(__name__)
 

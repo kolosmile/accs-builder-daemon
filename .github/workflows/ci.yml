@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  workflow_dispatch:  # Manual trigger only; automatic CI disabled
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install -e libs/accscore
+          pip install -e .
+          pip install ruff mypy pytest
+      - name: Lint
+        run: ruff .
+      - name: Type check
+        run: mypy .
+      - name: Test
+        run: pytest -q
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [builder, agent]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build image
+        run: docker build -f docker/Dockerfile.${{ matrix.target }} -t ghcr.io/${{ github.repository }}/accs-daemon-${{ matrix.target }}:${{ github.sha }} .
+      - name: Push image
+        if: github.event_name == 'push'
+        run: docker push ghcr.io/${{ github.repository }}/accs-daemon-${{ matrix.target }}:${{ github.sha }}
